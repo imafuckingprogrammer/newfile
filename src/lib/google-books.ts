@@ -216,7 +216,7 @@ export function formatBookForDatabase(book: GoogleBook) {
     description: volumeInfo.description || null,
     page_count: volumeInfo.pageCount || null,
     published_date: volumeInfo.publishedDate ? new Date(volumeInfo.publishedDate).toISOString().split('T')[0] : null,
-    genres: volumeInfo.categories || [],
+    categories: volumeInfo.categories || [],
     isbn_10: isbn10 || null,
     isbn_13: isbn13 || null,
   }

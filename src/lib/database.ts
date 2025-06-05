@@ -1050,8 +1050,8 @@ export async function getReadingAnalytics(userId: string) {
   const genreCounts: { [key: string]: number } = {}
   userBooks.forEach(book => {
     const bookData = booksMap.get(book.google_books_id)
-    if (bookData?.genres) {
-      bookData.genres.forEach((genre: string) => {
+    if (bookData?.categories) {
+      bookData.categories.forEach((genre: string) => {
         genreCounts[genre] = (genreCounts[genre] || 0) + 1
       })
     }

@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   try {
     const cookieStore = cookies()
     const supabase = createClient()
-    const { reviewId, content } = await request.json()
+    const { userBookId, content } = await request.json()
 
     if (!content?.trim()) {
       return NextResponse.json(
@@ -21,12 +21,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Add new comment
+    // Add new comment to user_books review
     const { error: insertError } = await supabase
       .from('review_comments')
       .insert({
         user_id: user.id,
-        review_id: reviewId,
+        user_book_id: userBookId, // Reference to user_books.id instead of reviews.id
         content: content.trim()
       })
 

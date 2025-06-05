@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   try {
     const cookieStore = cookies()
     const supabase = createClient()
-    const { reviewId } = await request.json()
+    const { userBookId } = await request.json()
 
     // Get the current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -14,12 +14,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Check if the user has already liked this review
+    // Check if the user has already liked this user_book review
     const { data: existingLike } = await supabase
       .from('review_likes')
       .select()
       .eq('user_id', user.id)
-      .eq('review_id', reviewId)
+      .eq('user_book_id', userBookId)
       .single()
 
     if (existingLike) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
         .from('review_likes')
         .delete()
         .eq('user_id', user.id)
-        .eq('review_id', reviewId)
+        .eq('user_book_id', userBookId)
 
       if (deleteError) {
         throw deleteError
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
         .from('review_likes')
         .insert({
           user_id: user.id,
-          review_id: reviewId
+          user_book_id: userBookId
         })
 
       if (insertError) {
