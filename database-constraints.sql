@@ -69,7 +69,7 @@ ALTER TABLE books
 ADD CONSTRAINT check_authors_not_empty 
 CHECK (array_length(authors, 1) > 0);
 
--- Categories array validation (renamed from genres)
+-- Categories array validation
 ALTER TABLE books 
 ADD CONSTRAINT check_categories_reasonable 
 CHECK (categories IS NULL OR array_length(categories, 1) <= 10);
@@ -151,30 +151,6 @@ ADD CONSTRAINT check_no_self_follow
 CHECK (follower_id != following_id);
 
 -- ============================================================================
--- REVIEW SYSTEM CONSTRAINTS (user_books approach)
--- ============================================================================
-
--- Review comments table constraints (if using separate tables)
--- Note: Using user_book_id to reference user_books.id instead of separate reviews table
-CREATE TABLE IF NOT EXISTS review_comments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    user_book_id UUID NOT NULL REFERENCES user_books(id) ON DELETE CASCADE,
-    content TEXT NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 2000),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Review likes table constraints (if using separate tables)
-CREATE TABLE IF NOT EXISTS review_likes (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    user_book_id UUID NOT NULL REFERENCES user_books(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(user_id, user_book_id) -- Prevent duplicate likes
-);
-
--- ============================================================================
 -- FOREIGN KEY CONSTRAINTS WITH CASCADE OPTIONS
 -- ============================================================================
 
@@ -246,99 +222,6 @@ ADD CONSTRAINT unique_list_position
 UNIQUE (list_id, position);
 
 -- ============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
--- ============================================================================
-
--- Enable RLS on all tables
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_books ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE list_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE follows ENABLE ROW LEVEL SECURITY;
-ALTER TABLE review_comments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE review_likes ENABLE ROW LEVEL SECURITY;
--- Books table can remain public (no sensitive data)
-
--- Users table policies
-DROP POLICY IF EXISTS "Users can view all public profiles" ON users;
-CREATE POLICY "Users can view all public profiles" ON users
-    FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile" ON users;
-CREATE POLICY "Users can update own profile" ON users
-    FOR UPDATE USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Users can insert own profile" ON users;
-CREATE POLICY "Users can insert own profile" ON users
-    FOR INSERT WITH CHECK (auth.uid() = id);
-
--- User_books table policies
-DROP POLICY IF EXISTS "Users can view public book records" ON user_books;
-CREATE POLICY "Users can view public book records" ON user_books
-    FOR SELECT USING (true); -- Public for discovery, but reviews might need privacy settings
-
-DROP POLICY IF EXISTS "Users can manage own books" ON user_books;
-CREATE POLICY "Users can manage own books" ON user_books
-    FOR ALL USING (auth.uid() = user_id);
-
--- Lists table policies
-DROP POLICY IF EXISTS "Users can view public lists" ON lists;
-CREATE POLICY "Users can view public lists" ON lists
-    FOR SELECT USING (is_public = true OR auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage own lists" ON lists;
-CREATE POLICY "Users can manage own lists" ON lists
-    FOR ALL USING (auth.uid() = user_id);
-
--- List_items table policies
-DROP POLICY IF EXISTS "Users can view list items for accessible lists" ON list_items;
-CREATE POLICY "Users can view list items for accessible lists" ON list_items
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM lists 
-            WHERE lists.id = list_items.list_id 
-            AND (lists.is_public = true OR lists.user_id = auth.uid())
-        )
-    );
-
-DROP POLICY IF EXISTS "Users can manage own list items" ON list_items;
-CREATE POLICY "Users can manage own list items" ON list_items
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM lists 
-            WHERE lists.id = list_items.list_id 
-            AND lists.user_id = auth.uid()
-        )
-    );
-
--- Follows table policies
-DROP POLICY IF EXISTS "Users can view all follows" ON follows;
-CREATE POLICY "Users can view all follows" ON follows
-    FOR SELECT USING (true); -- Public for social features
-
-DROP POLICY IF EXISTS "Users can manage own follows" ON follows;
-CREATE POLICY "Users can manage own follows" ON follows
-    FOR ALL USING (auth.uid() = follower_id);
-
--- Review comments policies
-DROP POLICY IF EXISTS "Users can view all review comments" ON review_comments;
-CREATE POLICY "Users can view all review comments" ON review_comments
-    FOR SELECT USING (true); -- Public comments
-
-DROP POLICY IF EXISTS "Users can manage own comments" ON review_comments;
-CREATE POLICY "Users can manage own comments" ON review_comments
-    FOR ALL USING (auth.uid() = user_id);
-
--- Review likes policies
-DROP POLICY IF EXISTS "Users can view all review likes" ON review_likes;
-CREATE POLICY "Users can view all review likes" ON review_likes
-    FOR SELECT USING (true); -- Public like counts
-
-DROP POLICY IF EXISTS "Users can manage own likes" ON review_likes;
-CREATE POLICY "Users can manage own likes" ON review_likes
-    FOR ALL USING (auth.uid() = user_id);
-
--- ============================================================================
 -- TRIGGERS FOR AUTOMATIC UPDATES
 -- ============================================================================
 
@@ -365,11 +248,6 @@ CREATE TRIGGER update_user_books_updated_at
 DROP TRIGGER IF EXISTS update_lists_updated_at ON lists;
 CREATE TRIGGER update_lists_updated_at 
     BEFORE UPDATE ON lists 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_review_comments_updated_at ON review_comments;
-CREATE TRIGGER update_review_comments_updated_at 
-    BEFORE UPDATE ON review_comments 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
@@ -444,25 +322,17 @@ ANALYZE user_books;
 ANALYZE lists;
 ANALYZE list_items;
 ANALYZE follows;
-ANALYZE review_comments;
-ANALYZE review_likes;
 
 -- ============================================================================
 -- NOTES
 -- ============================================================================
 
 /*
-REVIEW SYSTEM ARCHITECTURE DECISION:
-- Using user_books.review_text for primary reviews (simpler, cleaner)
-- Optional review_comments and review_likes tables for enhanced social features
-- review_comments.user_book_id references user_books.id (not separate reviews table)
-- review_likes.user_book_id references user_books.id (not separate reviews table)
-
-SCHEMA FIXES APPLIED:
-1. Fixed genres → categories naming consistency
-2. Standardized on user_books approach for reviews
-3. Added comprehensive RLS policies for all tables
-4. Added proper foreign key constraints with cascades
-5. Added validation functions and triggers
-6. Added review system tables with correct architecture
+1. These constraints ensure data integrity at the database level
+2. Foreign key constraints use CASCADE to maintain referential integrity
+3. Check constraints validate data formats and ranges
+4. Triggers automatically maintain timestamps and validate business logic
+5. Unique constraints prevent duplicate data
+6. All constraints are named for easy identification and modification
+7. Performance impact is minimal as constraints are checked during DML operations
 */ 
